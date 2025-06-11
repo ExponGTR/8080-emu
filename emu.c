@@ -118,6 +118,20 @@ void DAD(State *state, uint8_t high_reg, uint8_t low_reg)
     state->h = (ans & 0xff00) >> 8;
     state->l = (ans & 0xff);
 }
+void JMP(State *state, unsigned char *opcode)
+{
+    state->pc = (opcode[2] << 8) | (opcode[1]); 
+}
+void CALL(State *state, unsigned char *opcode)
+{
+    uint16_t ret = state->pc + 2;
+    state->memory[state->sp - 1] = (ret >> 8) & 0xff;
+    state->memory[state->sp - 2] = (ret & 0xff);
+    state->sp -= 2;
+    JMP(state, opcode);
+}
+void RET(State *state, unsigned char *opcode);
+
 void emulate_opcodes (State *state)
 {
     unsigned char *opcode = &state->memory[state->pc];
@@ -460,67 +474,215 @@ void emulate_opcodes (State *state)
 
         case 0xc0: unimplemented_instruction(state); break;
         case 0xc1: unimplemented_instruction(state); break;
-        case 0xc2: unimplemented_instruction(state); break;
-        case 0xc3: unimplemented_instruction(state); break;
-        case 0xc4: unimplemented_instruction(state); break;
+        case 0xc2: // JNZ a16
+            if (state->flags.z == 0)
+            {
+                JMP(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
+        case 0xc3: //JMP a16
+            JMP(state, opcode);
+            break;
+        case 0xc4: // CNZ a16
+            if (state->flags.z == 0)
+            {
+                CALL(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xc5: unimplemented_instruction(state); break;
         case 0xc6: unimplemented_instruction(state); break;
         case 0xc7: unimplemented_instruction(state); break;
         case 0xc8: unimplemented_instruction(state); break;
         case 0xc9: unimplemented_instruction(state); break;
-        case 0xca: unimplemented_instruction(state); break;
+        case 0xca: // JZ a16
+            if (state->flags.z)
+            {
+                JMP(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xcb: unimplemented_instruction(state); break;
-        case 0xcc: unimplemented_instruction(state); break;
-        case 0xcd: unimplemented_instruction(state); break;
+        case 0xcc: // CZ a16
+            if (state->flags.z)
+            {
+                CALL(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
+        case 0xcd: // CALL a16
+            CALL(state, opcode);
+            break;
         case 0xce: unimplemented_instruction(state); break;
         case 0xcf: unimplemented_instruction(state); break;
         case 0xd0: unimplemented_instruction(state); break;
         case 0xd1: unimplemented_instruction(state); break;
-        case 0xd2: unimplemented_instruction(state); break;
+        case 0xd2: // JNC a16
+            if (state->flags.cy == 0)
+            {
+                JMP(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xd3: unimplemented_instruction(state); break;
-        case 0xd4: unimplemented_instruction(state); break;
+            case 0xd4: // CNC a16
+                if (state->flags.cy == 0)
+                {
+                    CALL(state, opcode);
+                }
+                else
+                {
+                    state->pc += 2;
+                }
+                break;
         case 0xd5: unimplemented_instruction(state); break;
         case 0xd6: unimplemented_instruction(state); break;
         case 0xd7: unimplemented_instruction(state); break;
         case 0xd8: unimplemented_instruction(state); break;
         case 0xd9: unimplemented_instruction(state); break;
-        case 0xda: unimplemented_instruction(state); break;
+        case 0xda: // JC a16
+            if (state->flags.cy)
+            {
+                JMP(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xdb: unimplemented_instruction(state); break;
-        case 0xdc: unimplemented_instruction(state); break;
+        case 0xdc: // CC a16
+            if (state->flags.cy)
+            {
+                CALL(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xdd: unimplemented_instruction(state); break;
         case 0xde: unimplemented_instruction(state); break;
         case 0xdf: unimplemented_instruction(state); break;
 
         case 0xe0: unimplemented_instruction(state); break;
         case 0xe1: unimplemented_instruction(state); break;
-        case 0xe2: unimplemented_instruction(state); break;
+        case 0xe2: // JPO a16
+            if (state->flags.p == 0)
+            {
+                JMP(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xe3: unimplemented_instruction(state); break;
-        case 0xe4: unimplemented_instruction(state); break;
+        case 0xe4: // CPO a16
+            if (state->flags.p == 0)
+            {
+                CALL(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xe5: unimplemented_instruction(state); break;
         case 0xe6: unimplemented_instruction(state); break;
         case 0xe7: unimplemented_instruction(state); break;
         case 0xe8: unimplemented_instruction(state); break;
         case 0xe9: unimplemented_instruction(state); break;
-        case 0xea: unimplemented_instruction(state); break;
+        case 0xea: // JPE a16
+            if (state->flags.p)
+            {
+                JMP(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xeb: unimplemented_instruction(state); break;
-        case 0xec: unimplemented_instruction(state); break;
+        case 0xec: // CPE a16
+            if (state->flags.p)
+            {
+                CALL(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xed: unimplemented_instruction(state); break;
         case 0xee: unimplemented_instruction(state); break;
         case 0xef: unimplemented_instruction(state); break;
 
         case 0xf0: unimplemented_instruction(state); break;
         case 0xf1: unimplemented_instruction(state); break;
-        case 0xf2: unimplemented_instruction(state); break;
+        case 0xf2: // JP a16
+            if (state->flags.s == 0)
+            {
+                JMP(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xf3: unimplemented_instruction(state); break;
-        case 0xf4: unimplemented_instruction(state); break;
+        case 0xf4: // CP a16
+            if (state->flags.s == 0)
+            {
+                CALL(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xf5: unimplemented_instruction(state); break;
         case 0xf6: unimplemented_instruction(state); break;
         case 0xf7: unimplemented_instruction(state); break;
         case 0xf8: unimplemented_instruction(state); break;
         case 0xf9: unimplemented_instruction(state); break;
-        case 0xfa: unimplemented_instruction(state); break;
+        case 0xfa:  // JM a16
+            if (state->flags.s)
+            {
+                JMP(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xfb: unimplemented_instruction(state); break;
-        case 0xfc: unimplemented_instruction(state); break;
+        case 0xfc: // CM a16
+            if (state->flags.s)
+            {
+                CALL(state, opcode);
+            }
+            else
+            {
+                state->pc += 2;
+            }
+            break;
         case 0xfd: unimplemented_instruction(state); break;
         case 0xfe: unimplemented_instruction(state); break;
         case 0xff: unimplemented_instruction(state); break;   
