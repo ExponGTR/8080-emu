@@ -5,6 +5,8 @@ Note:
     AC flag will not be implemented for now (maybe after I get Space Invaders running)
 */
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 typedef struct Condition_Codes
 {
@@ -38,47 +40,84 @@ void unimplemented_instruction(State *state)
     exit(1);
 }
 
-// Write this later
-int parity(int val);
+int parity(int val); // Write this later
 
-void ADD(State *state, uint8_t r)
+void ADD(State *state, uint8_t reg)
 {
-    uint16_t ans = (uint16_t) state->a + (uint16_t) r;
+    uint16_t ans = (uint16_t) state->a + (uint16_t) reg; // Converting to 16 bit for accurate flag setting ig
     state->flags.z = ((ans & 0xff) == 0);
     state->flags.s = ((ans & 0x80) == 0x80);
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
 }
-void ADC(State *state, uint8_t r)
+void ADC(State *state, uint8_t reg)
 {
-    uint16_t ans = (uint16_t) state->a + (uint16_t) r + (uint16_t) state->flags.cy;
+    uint16_t ans = (uint16_t) state->a + (uint16_t) reg + (uint16_t) state->flags.cy;
+    state->flags.z = ((ans & 0xff) == 0);
+    state->flags.s = ((ans & 0x80) == 0x80); // S is set when the 7th bit is set
+    state->flags.cy = (ans > 0xff);
+    state->flags.p = parity(ans & 0xff);
+    state->a = ans & 0xff;
+}
+void SUB(State *state, uint8_t reg)
+{
+    uint16_t ans = (uint16_t) state->a - (uint16_t) reg;
     state->flags.z = ((ans & 0xff) == 0);
     state->flags.s = ((ans & 0x80) == 0x80);
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
 }
-void SUB(State *state, uint8_t r)
+void SBB(State *state, uint8_t reg)
 {
-    uint16_t ans = (uint16_t) state->a - (uint16_t) r;
+    uint16_t ans = (uint16_t) state->a - (uint16_t) reg - (uint16_t) state->flags.cy;
     state->flags.z = ((ans & 0xff) == 0);
     state->flags.s = ((ans & 0x80) == 0x80);
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
 }
-
-void SBB(State *state, uint8_t r)
+void INX(uint8_t *high_reg, uint8_t *low_reg)
 {
-    uint16_t ans = (uint16_t) state->a - (uint16_t) r - (uint16_t) state->flags.cy;
+    (*low_reg)++;
+    if (*low_reg == 0)
+    {
+        (*high_reg)++;
+    }
+}
+void INR(State *state, uint8_t *reg)
+{
+    uint16_t ans = (uint16_t) *reg + 1;
     state->flags.z = ((ans & 0xff) == 0);
     state->flags.s = ((ans & 0x80) == 0x80);
-    state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
-    state->a = ans & 0xff;
+    *reg = ans & 0xff;
+};
+void DCX(uint8_t *high_reg, uint8_t *low_reg)
+{
+    (*low_reg)--;
+    if (*low_reg == 0xff)
+    {
+        (*high_reg)--;
+    }
 }
-
+void DCR(State *state, uint8_t *reg)
+{
+    uint16_t ans = (uint16_t) *reg - 1;
+    state->flags.z = (ans == 0);
+    state->flags.s = ((ans & 0x80) == 0x80);
+    state->flags.p = parity(ans & 0xff);
+    *reg = ans & 0xff;
+}
+void DAD(State *state, uint8_t high_reg, uint8_t low_reg)
+{
+    uint32_t hl = (state->h << 8) | (state->l);
+    uint32_t ans = hl + (uint32_t) (((high_reg) << 8) | (low_reg));
+    state->flags.cy = (ans > 0xffff);
+    state->h = (ans & 0xff00) >> 8;
+    state->l = (ans & 0xff);
+}
 void emulate_opcodes (State *state)
 {
     unsigned char *opcode = &state->memory[state->pc];
@@ -93,68 +132,128 @@ void emulate_opcodes (State *state)
             state->pc += 2;
             break;
         case 0x02: unimplemented_instruction(state); break;
-        case 0x03: unimplemented_instruction(state); break;
-        case 0x04: unimplemented_instruction(state); break;
-        case 0x05: unimplemented_instruction(state); break;
+        case 0x03: // INX B
+            INX(&state->b, &state->c);
+            break;
+        case 0x04: // INR B
+            INR(state, &state->b);
+            break;
+        case 0x05: // DCR B
+            DCR(state, &state->b);
+            break;
         case 0x06: unimplemented_instruction(state); break;
         case 0x07: unimplemented_instruction(state); break;
         case 0x08: unimplemented_instruction(state); break;
-        case 0x09: unimplemented_instruction(state); break;
+        case 0x09: // DAD B
+            DAD(state, state->b, state->c);
+            break;
         case 0x0a: unimplemented_instruction(state); break;
-        case 0x0b: unimplemented_instruction(state); break;
-        case 0x0c: unimplemented_instruction(state); break;
-        case 0x0d: unimplemented_instruction(state); break;
+        case 0x0b: // DCX B
+            DCX(&state->b, &state->c);
+            break;
+        case 0x0c: // INR C
+            INR(state, &state->c);
+            break;
+        case 0x0d: // DCR C
+            DCR(state, &state->c);
+            break;
         case 0x0e: unimplemented_instruction(state); break;
         case 0x0f: unimplemented_instruction(state); break;
 
         case 0x10: unimplemented_instruction(state); break;
         case 0x11: unimplemented_instruction(state); break;
         case 0x12: unimplemented_instruction(state); break;
-        case 0x13: unimplemented_instruction(state); break;
-        case 0x14: unimplemented_instruction(state); break;
-        case 0x15: unimplemented_instruction(state); break;
+        case 0x13: // INX D
+            INX(&state->d, &state->e);
+            break;
+        case 0x14: // INR D
+            INR(state, &state->d);
+            break;
+        case 0x15: // DCR D
+            DCR(state, &state->d);
+            break;
         case 0x16: unimplemented_instruction(state); break;
         case 0x17: unimplemented_instruction(state); break;
         case 0x18: unimplemented_instruction(state); break;
-        case 0x19: unimplemented_instruction(state); break;
+        case 0x19: // DAD D
+            DAD(state, state->d, state->e);
+            break;
         case 0x1a: unimplemented_instruction(state); break;
-        case 0x1b: unimplemented_instruction(state); break;
-        case 0x1c: unimplemented_instruction(state); break;
-        case 0x1d: unimplemented_instruction(state); break;
+        case 0x1b: // DCX D
+            DCX(&state->d, &state->e);
+            break;
+        case 0x1c: // INR E
+            INR(state, &state->e);
+            break;
+        case 0x1d: // DCR E
+            DCR(state, &state->e);
+            break;
         case 0x1e: unimplemented_instruction(state); break;
         case 0x1f: unimplemented_instruction(state); break;
 
         case 0x20: unimplemented_instruction(state); break;
         case 0x21: unimplemented_instruction(state); break;
         case 0x22: unimplemented_instruction(state); break;
-        case 0x23: unimplemented_instruction(state); break;
-        case 0x24: unimplemented_instruction(state); break;
-        case 0x25: unimplemented_instruction(state); break;
+        case 0x23: // INX H
+            INX(&state->h, &state->l);
+            break;
+        case 0x24: // INR H
+            INR(state, &state->h);
+            break;
+        case 0x25: // DCR H
+            DCR(state, &state->h);
+            break;
         case 0x26: unimplemented_instruction(state); break;
         case 0x27: unimplemented_instruction(state); break;
         case 0x28: unimplemented_instruction(state); break;
-        case 0x29: unimplemented_instruction(state); break;
+        case 0x29: // DAD H
+            DAD(state, state->h, state->l);
+            break;
         case 0x2a: unimplemented_instruction(state); break;
-        case 0x2b: unimplemented_instruction(state); break;
-        case 0x2c: unimplemented_instruction(state); break;
-        case 0x2d: unimplemented_instruction(state); break;
+        case 0x2b: // DCX H
+            DCX(&state->h, &state->l);
+            break;
+        case 0x2c: // INR L
+            INR(state, &state->l);
+            break;
+        case 0x2d: // DCR L
+            DCR(state, &state->l);
+            break;
         case 0x2e: unimplemented_instruction(state); break;
         case 0x2f: unimplemented_instruction(state); break;
 
         case 0x30: unimplemented_instruction(state); break;
         case 0x31: unimplemented_instruction(state); break;
         case 0x32: unimplemented_instruction(state); break;
-        case 0x33: unimplemented_instruction(state); break;
-        case 0x34: unimplemented_instruction(state); break;
-        case 0x35: unimplemented_instruction(state); break;
+        case 0x33: // INX SP
+            state->sp++;
+            break;
+        case 0x34: // INR M
+            INR(state, &state->memory[m]);
+            break;
+        case 0x35: // DCR M
+            DCR(state, &state->memory[m]);
+            break;
         case 0x36: unimplemented_instruction(state); break;
         case 0x37: unimplemented_instruction(state); break;
         case 0x38: unimplemented_instruction(state); break;
-        case 0x39: unimplemented_instruction(state); break;
+        case 0x39: // DAD SP
+            uint32_t hl = (state->h << 8) | (state->l);
+            uint32_t ans = hl + (uint32_t) state->sp;
+            state->flags.cy = (ans > 0xffff);
+            state->h = (ans & 0xff00) >> 8;
+            state->l = (ans & 0xff);
+            break;
         case 0x3a: unimplemented_instruction(state); break;
-        case 0x3b: unimplemented_instruction(state); break;
-        case 0x3c: unimplemented_instruction(state); break;
-        case 0x3d: unimplemented_instruction(state); break;
+        case 0x3b: // DCX SP
+            state->sp--;
+            break;
+        case 0x3c: // INR A
+            INR(state, &state->a);
+            break;
+        case 0x3d: // DCR A
+            DCR(state, &state->a);
+            break;
         case 0x3e: unimplemented_instruction(state); break;
         case 0x3f: unimplemented_instruction(state); break;
 
