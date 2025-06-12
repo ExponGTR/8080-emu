@@ -93,7 +93,7 @@ void INR(State *state, uint8_t *reg)
     state->flags.s = ((ans & 0x80) == 0x80);
     state->flags.p = parity(ans & 0xff);
     *reg = ans & 0xff;
-};
+}
 void DCX(uint8_t *high_reg, uint8_t *low_reg)
 {
     (*low_reg)--;
@@ -115,8 +115,8 @@ void DAD(State *state, uint8_t high_reg, uint8_t low_reg)
     uint32_t hl = (state->h << 8) | (state->l);
     uint32_t ans = hl + (uint32_t) (((high_reg) << 8) | (low_reg));
     state->flags.cy = (ans > 0xffff);
-    state->h = (ans & 0xff00) >> 8;
-    state->l = (ans & 0xff);
+    state->h = (ans & 0xff00) >> 8; // Just upper byte to H
+    state->l = (ans & 0x00ff); // And lower byte to L
 }
 void JMP(State *state, unsigned char *opcode)
 {
@@ -124,13 +124,29 @@ void JMP(State *state, unsigned char *opcode)
 }
 void CALL(State *state, unsigned char *opcode)
 {
+    // Push the return address to the stack (it grows downward)
+    // Then, jump to the given address
     uint16_t ret = state->pc + 2;
-    state->memory[state->sp - 1] = (ret >> 8) & 0xff;
-    state->memory[state->sp - 2] = (ret & 0xff);
+    state->memory[state->sp - 1] = (ret & 0xff00) >> 8;
+    state->memory[state->sp - 2] = (ret & 0x00ff);
     state->sp -= 2;
     JMP(state, opcode);
 }
-void RET(State *state, unsigned char *opcode);
+void RET(State *state)
+{
+    // Return to the address stored in the stack (from CALL)
+    state->pc = (state->memory[state->sp]) | (state->memory[state->pc + 1] << 8);
+    state->sp += 2;
+}
+// void RST(State *state, sth sth)
+// {
+//     // Push the return address to stack the stack
+//     uint16_t ret = state->pc + 2;
+//     state->memory[state->sp - 1] = (ret & 0xff00) >> 8;
+//     state->memory[state->sp - 2] = (ret & 0x00ff);
+//     state->sp -= 2;
+//     // JMP(state, sth);
+// }
 
 void emulate_opcodes (State *state)
 {
@@ -256,7 +272,7 @@ void emulate_opcodes (State *state)
             uint32_t ans = hl + (uint32_t) state->sp;
             state->flags.cy = (ans > 0xffff);
             state->h = (ans & 0xff00) >> 8;
-            state->l = (ans & 0xff);
+            state->l = (ans & 0x00ff);
             break;
         case 0x3a: unimplemented_instruction(state); break;
         case 0x3b: // DCX SP
@@ -472,7 +488,12 @@ void emulate_opcodes (State *state)
         case 0xbe: unimplemented_instruction(state); break;
         case 0xbf: unimplemented_instruction(state); break;
 
-        case 0xc0: unimplemented_instruction(state); break;
+        case 0xc0: // RNZ
+            if (state->flags.z == 0)
+            {
+                RET(state);
+            }
+            break;
         case 0xc1: unimplemented_instruction(state); break;
         case 0xc2: // JNZ a16
             if (state->flags.z == 0)
@@ -500,8 +521,15 @@ void emulate_opcodes (State *state)
         case 0xc5: unimplemented_instruction(state); break;
         case 0xc6: unimplemented_instruction(state); break;
         case 0xc7: unimplemented_instruction(state); break;
-        case 0xc8: unimplemented_instruction(state); break;
-        case 0xc9: unimplemented_instruction(state); break;
+        case 0xc8: // RZ
+            if (state->flags.z)
+            {
+                RET(state);
+            }
+            break;
+        case 0xc9: // RNZ a16
+            RET(state);
+            break;
         case 0xca: // JZ a16
             if (state->flags.z)
             {
@@ -528,7 +556,12 @@ void emulate_opcodes (State *state)
             break;
         case 0xce: unimplemented_instruction(state); break;
         case 0xcf: unimplemented_instruction(state); break;
-        case 0xd0: unimplemented_instruction(state); break;
+        case 0xd0: // RNC
+            if (state->flags.cy == 0)
+            {
+                RET(state);
+            }
+            break;
         case 0xd1: unimplemented_instruction(state); break;
         case 0xd2: // JNC a16
             if (state->flags.cy == 0)
@@ -554,7 +587,12 @@ void emulate_opcodes (State *state)
         case 0xd5: unimplemented_instruction(state); break;
         case 0xd6: unimplemented_instruction(state); break;
         case 0xd7: unimplemented_instruction(state); break;
-        case 0xd8: unimplemented_instruction(state); break;
+        case 0xd8: // RC
+            if (state->flags.cy)
+            {
+                RET(state);
+            }
+            break;
         case 0xd9: unimplemented_instruction(state); break;
         case 0xda: // JC a16
             if (state->flags.cy)
@@ -581,7 +619,12 @@ void emulate_opcodes (State *state)
         case 0xde: unimplemented_instruction(state); break;
         case 0xdf: unimplemented_instruction(state); break;
 
-        case 0xe0: unimplemented_instruction(state); break;
+        case 0xe0: // RPO
+            if (state->flags.p == 0)
+            {
+                RET(state);
+            }
+            break;
         case 0xe1: unimplemented_instruction(state); break;
         case 0xe2: // JPO a16
             if (state->flags.p == 0)
@@ -607,7 +650,12 @@ void emulate_opcodes (State *state)
         case 0xe5: unimplemented_instruction(state); break;
         case 0xe6: unimplemented_instruction(state); break;
         case 0xe7: unimplemented_instruction(state); break;
-        case 0xe8: unimplemented_instruction(state); break;
+        case 0xe8: // RPE
+            if (state->flags.p)
+            {
+                RET(state);
+            }
+            break;
         case 0xe9: unimplemented_instruction(state); break;
         case 0xea: // JPE a16
             if (state->flags.p)
@@ -634,7 +682,12 @@ void emulate_opcodes (State *state)
         case 0xee: unimplemented_instruction(state); break;
         case 0xef: unimplemented_instruction(state); break;
 
-        case 0xf0: unimplemented_instruction(state); break;
+        case 0xf0: // RP
+            if (state->flags.z == 0)
+            {
+                RET(state);
+            }
+            break;
         case 0xf1: unimplemented_instruction(state); break;
         case 0xf2: // JP a16
             if (state->flags.s == 0)
@@ -660,7 +713,12 @@ void emulate_opcodes (State *state)
         case 0xf5: unimplemented_instruction(state); break;
         case 0xf6: unimplemented_instruction(state); break;
         case 0xf7: unimplemented_instruction(state); break;
-        case 0xf8: unimplemented_instruction(state); break;
+        case 0xf8: // RM
+            if (state->flags.s)
+            {
+                RET(state);
+            }
+            break;
         case 0xf9: unimplemented_instruction(state); break;
         case 0xfa:  // JM a16
             if (state->flags.s)
