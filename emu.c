@@ -1,6 +1,7 @@
 /*
 The disassembler is still not working completely how it should, but we can worry about that later
 Note:
+    The 8080 is little-endian
     M is the memory location pointed to by the register pair HL
     AC flag will not be implemented for now (maybe after I get Space Invaders running)
 */
@@ -57,7 +58,6 @@ void ADD(State *state, uint8_t reg)
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
-    state->pc += 1;
 }
 void ADC(State *state, uint8_t reg)
 {
@@ -67,7 +67,6 @@ void ADC(State *state, uint8_t reg)
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
-    state->pc += 1;
 }
 void SUB(State *state, uint8_t reg)
 {
@@ -77,7 +76,6 @@ void SUB(State *state, uint8_t reg)
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
-    state->pc += 1;
 }
 void SBB(State *state, uint8_t reg)
 {
@@ -87,7 +85,6 @@ void SBB(State *state, uint8_t reg)
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
-    state->pc += 1;
 }
 void INX(State *state, uint8_t *high_reg, uint8_t *low_reg)
 {
@@ -96,7 +93,6 @@ void INX(State *state, uint8_t *high_reg, uint8_t *low_reg)
     {
         (*high_reg)++;
     }
-    state->pc += 1;
 }
 void INR(State *state, uint8_t *reg)
 {
@@ -105,7 +101,6 @@ void INR(State *state, uint8_t *reg)
     state->flags.s = ((ans & 0x80) == 0x80);
     state->flags.p = parity(ans & 0xff);
     *reg = ans & 0xff;
-    state->pc += 1;
 }
 void DCX(State *state, uint8_t *high_reg, uint8_t *low_reg)
 {
@@ -114,7 +109,6 @@ void DCX(State *state, uint8_t *high_reg, uint8_t *low_reg)
     {
         (*high_reg)--;
     }
-    state->pc += 1;
 }
 void DCR(State *state, uint8_t *reg)
 {
@@ -123,61 +117,55 @@ void DCR(State *state, uint8_t *reg)
     state->flags.s = ((ans & 0x80) == 0x80);
     state->flags.p = parity(ans & 0xff);
     *reg = ans & 0xff;
-    state->pc += 1;
 }
 void DAD(State *state, uint8_t high_reg, uint8_t low_reg)
 {
-    uint32_t hl = (state->h << 8) | (state->l);
-    uint32_t ans = hl + (uint32_t) (((high_reg) << 8) | (low_reg));
+    uint32_t hl = (state->h << 8) | state->l;
+    uint32_t ans = hl + (uint32_t) ((high_reg << 8) | low_reg);
     state->flags.cy = (ans > 0xffff);
     state->h = (ans & 0xff00) >> 8; // Just upper byte to H
     state->l = (ans & 0x00ff); // And lower byte to L
-    state->pc += 1;
 }
-void JMP(State *state, unsigned char *opcode)
+void JMP(State *state, uint8_t lsb, uint8_t msb)
 {
-    state->pc = (opcode[2] << 8) | (opcode[1]); 
+    state->pc = (msb << 8) | lsb;
 }
-void CALL(State *state, unsigned char *opcode)
+void CALL(State *state, uint8_t lsb, uint8_t msb)
 {
     // Push the return address to the stack (it grows downward)
-    // Then, jump to the given address
-    uint16_t ret = state->pc + 3;
-    state->memory[state->sp - 1] = (ret & 0xff00) >> 8;
-    state->memory[state->sp - 2] = (ret & 0x00ff);
-    state->sp -= 2;
-    JMP(state, opcode);
+    // Then, jump to the given
+    state->memory[--state->sp] = (state->pc & 0xff00) >> 8;
+    state->memory[--state->sp] = state->pc & 0x00ff;
+    state->pc = (msb << 8) | lsb;
 }
 void RET(State *state)
 {
     // Return to the address stored in the stack (from CALL)
-    state->pc = (state->memory[state->sp]) | (state->memory[state->sp + 1] << 8);
-    state->sp += 2;
+    uint8_t lsb = state->memory[state->sp++];
+    uint8_t msb = state->memory[state->sp++];
+    state->pc = (msb << 8) | lsb;
 }
 void RST(State *state, uint16_t addr)
 {
     // Push the return address to stack
-    uint16_t ret = state->pc + 1;
-    state->memory[state->sp - 1] = (ret & 0xff00) >> 8;
-    state->memory[state->sp - 2] = (ret & 0x00ff);
-    state->sp -= 2;
+    // Then jump to the given vector
+    state->memory[--state->sp] = (state->pc & 0xff00) >> 8;
+    state->memory[--state->sp] = state->pc & 0x00ff;
     state->pc = addr;
 }
 
 void emulate_opcodes (State *state)
 {
-    unsigned char *opcode = &state->memory[state->pc];
+    uint8_t opcode = fetch(state);
     uint16_t m = (state->h << 8) | (state->l);
 
-    switch (*opcode)
+    switch (opcode)
     {
         case 0x00: // NOP
-            state->pc += 1;
             break;
         case 0x01: // LXI B,d16
-            state->c = opcode[1];
-            state->b = opcode[2];
-            state->pc += 3;
+            state->c = fetch(state); // lower byte
+            state->b = fetch(state); // higher byte
             break;
         case 0x02: unimplemented_instruction(state); break;
         case 0x03: // INX B
@@ -275,7 +263,6 @@ void emulate_opcodes (State *state)
         case 0x32: unimplemented_instruction(state); break;
         case 0x33: // INX SP
             state->sp++;
-            state->pc++;
             break;
         case 0x34: // INR M
             INR(state, &state->memory[m]);
@@ -292,12 +279,10 @@ void emulate_opcodes (State *state)
             state->flags.cy = (ans > 0xffff);
             state->h = (ans & 0xff00) >> 8;
             state->l = (ans & 0x00ff);
-            state->pc++;
             break;
         case 0x3a: unimplemented_instruction(state); break;
         case 0x3b: // DCX SP
             state->sp--;
-            state->pc++;
             break;
         case 0x3c: // INR A
             INR(state, &state->a);
@@ -513,291 +498,251 @@ void emulate_opcodes (State *state)
             {
                 RET(state);
             }
-            else
-            {
-                state->pc += 1;
-            }
             break;
         case 0xc1: unimplemented_instruction(state); break;
         case 0xc2: // JNZ a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.z == 0)
             {
-                JMP(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                JMP(state, lsb, msb);
             }
             break;
         case 0xc3: // JMP a16
-            JMP(state, opcode);
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
+            JMP(state, lsb, msb);
             break;
         case 0xc4: // CNZ a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.z == 0)
             {
-                CALL(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                CALL(state, lsb, msb);
             }
             break;
         case 0xc5: unimplemented_instruction(state); break;
         case 0xc6: unimplemented_instruction(state); break;
-        case 0xc7: unimplemented_instruction(state); break;
+        case 0xc7: // RST 0
+            RST(state, 0x0000);
+            break;
         case 0xc8: // RZ
             if (state->flags.z)
             {
                 RET(state);
-            }
-            else
-            {
-                state->pc += 1;
             }
             break;
         case 0xc9: // RET
             RET(state);
             break;
         case 0xca: // JZ a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.z)
             {
-                JMP(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                JMP(state, lsb, msb);
             }
             break;
         case 0xcb: unimplemented_instruction(state); break;
         case 0xcc: // CZ a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.z)
             {
-                CALL(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                CALL(state, lsb, msb);
             }
             break;
         case 0xcd: // CALL a16
-            CALL(state, opcode);
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
+            CALL(state, lsb, msb);
             break;
         case 0xce: unimplemented_instruction(state); break;
-        case 0xcf: unimplemented_instruction(state); break;
+        case 0xcf: // RST 1
+            RST(state, 0x0008);
+            break;
 
         case 0xd0: // RNC
             if (state->flags.cy == 0)
             {
                 RET(state);
             }
-            else
-            {
-                state->pc += 1;
-            }
             break;
         case 0xd1: unimplemented_instruction(state); break;
         case 0xd2: // JNC a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.cy == 0)
             {
-                JMP(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                JMP(state, lsb, msb);
             }
             break;
         case 0xd3: unimplemented_instruction(state); break;
         case 0xd4: // CNC a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.cy == 0)
             {
-                CALL(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                CALL(state, lsb, msb);
             }
             break;
         case 0xd5: unimplemented_instruction(state); break;
         case 0xd6: unimplemented_instruction(state); break;
-        case 0xd7: unimplemented_instruction(state); break;
+        case 0xd7: // RST 2
+            RST(state, 0x0010);
+            break;
         case 0xd8: // RC
             if (state->flags.cy)
             {
                 RET(state);
             }
-            else
-            {
-                state->pc += 1;
-            }
             break;
         case 0xd9: unimplemented_instruction(state); break;
         case 0xda: // JC a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.cy)
             {
-                JMP(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                JMP(state, lsb, msb);
             }
             break;
         case 0xdb: unimplemented_instruction(state); break;
         case 0xdc: // CC a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.cy)
             {
-                CALL(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                CALL(state, lsb, msb);
             }
             break;
         case 0xdd: unimplemented_instruction(state); break;
         case 0xde: unimplemented_instruction(state); break;
-        case 0xdf: unimplemented_instruction(state); break;
+        case 0xdf: // RST 3
+            RST(state, 0x0018);
+            break;
 
         case 0xe0: // RPO
             if (state->flags.p == 0)
             {
                 RET(state);
             }
-            else
-            {
-                state->pc += 1;
-            }
             break;
         case 0xe1: unimplemented_instruction(state); break;
         case 0xe2: // JPO a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.p == 0)
             {
-                JMP(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                JMP(state, lsb, msb);
             }
             break;
         case 0xe3: unimplemented_instruction(state); break;
         case 0xe4: // CPO a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.p == 0)
             {
-                CALL(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                CALL(state, lsb, msb);
             }
             break;
         case 0xe5: unimplemented_instruction(state); break;
         case 0xe6: unimplemented_instruction(state); break;
-        case 0xe7: unimplemented_instruction(state); break;
+        case 0xe7: // RST 4
+            RST(state, 0x0020);
+            break;
         case 0xe8: // RPE
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.p)
             {
                 RET(state);
-            }
-            else
-            {
-                state->pc += 1;
             }
             break;
         case 0xe9: // PCHL
             state->pc = ((state->h) << 8) | (state->l);
             break;
         case 0xea: // JPE a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.p)
             {
-                JMP(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                JMP(state, lsb, msb);
             }
             break;
         case 0xeb: unimplemented_instruction(state); break;
         case 0xec: // CPE a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.p)
             {
-                CALL(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                CALL(state, lsb, msb);
             }
             break;
         case 0xed: unimplemented_instruction(state); break;
         case 0xee: unimplemented_instruction(state); break;
-        case 0xef: unimplemented_instruction(state); break;
+        case 0xef: // RST 5
+            RST(state, 0x0028);
+            break;
 
         case 0xf0: // RP
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.z == 0)
             {
                 RET(state);
             }
-            else
-            {
-                state->pc += 1;
-            }
             break;
         case 0xf1: unimplemented_instruction(state); break;
         case 0xf2: // JP a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.s == 0)
             {
-                JMP(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                JMP(state, lsb, msb);
             }
             break;
         case 0xf3: unimplemented_instruction(state); break;
         case 0xf4: // CP a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.s == 0)
             {
-                CALL(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                CALL(state, lsb, msb);
             }
             break;
         case 0xf5: unimplemented_instruction(state); break;
         case 0xf6: unimplemented_instruction(state); break;
-        case 0xf7: unimplemented_instruction(state); break;
+        case 0xf7: // RST 6
+            RST(state, 0x0030);
+            break;
         case 0xf8: // RM
             if (state->flags.s)
             {
                 RET(state);
             }
-            else
-            {
-                state->pc += 1;
-            }
             break;
         case 0xf9: unimplemented_instruction(state); break;
         case 0xfa:  // JM a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.s)
             {
-                JMP(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                JMP(state, lsb, msb);
             }
             break;
         case 0xfb: unimplemented_instruction(state); break;
         case 0xfc: // CM a16
+            uint8_t lsb = fetch(state);
+            uint8_t msb = fetch(state);
             if (state->flags.s)
             {
-                CALL(state, opcode);
-            }
-            else
-            {
-                state->pc += 3;
+                CALL(state, lsb, msb);
             }
             break;
         case 0xfd: unimplemented_instruction(state); break;
         case 0xfe: unimplemented_instruction(state); break;
-        case 0xff: unimplemented_instruction(state); break;   
+        case 0xff: // RST 7
+            RST(state, 0x0038);
+            break;
     }
 }
