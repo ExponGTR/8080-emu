@@ -49,13 +49,16 @@ uint8_t fetch(State *state)
     return byte;
 }
 
-int parity(int val); // Write this later
+int parity(int val)
+{
+    return 0;
+}
 
 void ADD(State *state, uint8_t reg)
 {
     uint16_t ans = (uint16_t) state->a + (uint16_t) reg; // Converting to 16 bit for accurate flag setting ig
     state->flags.z = ((ans & 0xff) == 0);
-    state->flags.s = ((ans & 0x80) == 0x80);
+    state->flags.s = ((ans >> 7) & 1); // S is set when the 7th bit is set (2's complement)
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
@@ -64,7 +67,7 @@ void ADC(State *state, uint8_t reg)
 {
     uint16_t ans = (uint16_t) state->a + (uint16_t) reg + (uint16_t) state->flags.cy;
     state->flags.z = ((ans & 0xff) == 0);
-    state->flags.s = ((ans & 0x80) == 0x80); // S is set when the 7th bit is set
+    state->flags.s = ((ans >> 7) & 1);
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
@@ -73,7 +76,7 @@ void SUB(State *state, uint8_t reg)
 {
     uint16_t ans = (uint16_t) state->a - (uint16_t) reg;
     state->flags.z = ((ans & 0xff) == 0);
-    state->flags.s = ((ans & 0x80) == 0x80);
+    state->flags.s = ((ans >> 7) & 1);
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
@@ -82,7 +85,7 @@ void SBB(State *state, uint8_t reg)
 {
     uint16_t ans = (uint16_t) state->a - (uint16_t) reg - (uint16_t) state->flags.cy;
     state->flags.z = ((ans & 0xff) == 0);
-    state->flags.s = ((ans & 0x80) == 0x80);
+    state->flags.s = ((ans >> 7) & 1);
     state->flags.cy = (ans > 0xff);
     state->flags.p = parity(ans & 0xff);
     state->a = ans & 0xff;
@@ -90,7 +93,7 @@ void SBB(State *state, uint8_t reg)
 void INX(State *state, uint8_t *high_reg, uint8_t *low_reg)
 {
     (*low_reg)++;
-    if (*low_reg == 0)
+    if (*low_reg == 0) // Carry
     {
         (*high_reg)++;
     }
@@ -99,14 +102,14 @@ void INR(State *state, uint8_t *reg)
 {
     uint16_t ans = (uint16_t) *reg + 1;
     state->flags.z = ((ans & 0xff) == 0);
-    state->flags.s = ((ans & 0x80) == 0x80);
+    state->flags.s = ((ans >> 7) & 1);
     state->flags.p = parity(ans & 0xff);
     *reg = ans & 0xff;
 }
 void DCX(State *state, uint8_t *high_reg, uint8_t *low_reg)
 {
     (*low_reg)--;
-    if (*low_reg == 0xff)
+    if (*low_reg == 0xff) // Borrow
     {
         (*high_reg)--;
     }
@@ -115,7 +118,7 @@ void DCR(State *state, uint8_t *reg)
 {
     uint16_t ans = (uint16_t) *reg - 1;
     state->flags.z = (ans == 0);
-    state->flags.s = ((ans & 0x80) == 0x80);
+    state->flags.s = ((ans >> 7) & 1);
     state->flags.p = parity(ans & 0xff);
     *reg = ans & 0xff;
 }
@@ -160,7 +163,7 @@ void RST(State *state, uint16_t addr)
 void ANA(State *state, uint8_t reg)
 {
     uint8_t ans = state->a & reg;
-    state->flags.s = ((ans & 0x80) == 0x80);
+    state->flags.s = ((ans >> 7) & 1);
     state->flags.z = (ans == 0);
     state->flags.p = parity(ans);
     state->flags.cy = 0;
@@ -169,7 +172,7 @@ void ANA(State *state, uint8_t reg)
 void XRA(State *state, uint8_t reg)
 {
     uint8_t ans = state->a ^ reg;
-    state->flags.s = ((ans & 0x80) == 0x80);
+    state->flags.s = ((ans >> 7) & 1);
     state->flags.z = (ans == 0);
     state->flags.p = parity(ans);
     state->flags.cy = 0;
@@ -178,7 +181,7 @@ void XRA(State *state, uint8_t reg)
 void ORA(State *state, uint8_t reg)
 {
     uint8_t ans = state->a | reg;
-    state->flags.s = ((ans & 0x80) == 0x80);
+    state->flags.s = ((ans >> 7) & 1);
     state->flags.z = (ans == 0);
     state->flags.p = parity(ans);
     state->flags.cy = 0;
@@ -187,7 +190,7 @@ void ORA(State *state, uint8_t reg)
 void CMP(State *state, uint8_t reg)
 {
     uint8_t ans = state->a - reg;
-    state->flags.s = ((ans & 0x80) == 0x80);
+    state->flags.s = ((ans >> 7) & 1);
     state->flags.z = (ans == 0);
     state->flags.p = parity(ans);
     state->flags.cy = (state->a < reg);
@@ -204,20 +207,25 @@ void PUSH(State *state, uint8_t high_reg, uint8_t low_reg)
     state->memory[state->sp - 2] = low_reg;
     state->sp -= 2;
 }
+void LXI(State *state, uint8_t *high_reg, uint8_t *low_reg)
+{
+    *low_reg = fetch(state); // lower byte
+    *high_reg = fetch(state); // higher byte
+}
 
 
 void emulate_opcodes (State *state)
 {
     uint8_t opcode = fetch(state);
     uint16_t m = (state->h << 8) | (state->l);
+    uint8_t lsb, msb, temp, val;
 
     switch (opcode)
     {
         case 0x00: // NOP
             break;
         case 0x01: // LXI B,d16
-            state->c = fetch(state); // lower byte
-            state->b = fetch(state); // higher byte
+            LXI(state, &state->b, &state->c);
             break;
         case 0x02: unimplemented_instruction(state); break;
         case 0x03: // INX B
@@ -231,7 +239,7 @@ void emulate_opcodes (State *state)
             break;
         case 0x06: unimplemented_instruction(state); break;
         case 0x07: // RLC
-            uint8_t temp = state->a;
+            temp = state->a;
             state->a = (temp << 1) | (temp >> 7); // Shift everything to the left, bring msb to lsb
             state->flags.cy = temp >> 7;
             break;
@@ -252,13 +260,15 @@ void emulate_opcodes (State *state)
             break;
         case 0x0e: unimplemented_instruction(state); break;
         case 0x0f: // RRC
-            uint8_t temp = state->a;
+            temp = state->a;
             state->a = (temp >> 1) | (temp << 7);
             state->flags.cy = temp & 1;
             break;
 
         case 0x10: unimplemented_instruction(state); break;
-        case 0x11: unimplemented_instruction(state); break;
+        case 0x11: // LXI D,d16
+            LXI(state, &state->d, &state->e);
+            break;
         case 0x12: unimplemented_instruction(state); break;
         case 0x13: // INX D
             INX(state, &state->d, &state->e);
@@ -271,7 +281,7 @@ void emulate_opcodes (State *state)
             break;
         case 0x16: unimplemented_instruction(state); break;
         case 0x17: // RAL
-            uint8_t temp = state->a;
+            temp = state->a;
             state->a = (temp << 1) | (state->flags.cy >> 7);
             state->flags.cy = temp >> 7;
             break;
@@ -291,13 +301,15 @@ void emulate_opcodes (State *state)
             break;
         case 0x1e: unimplemented_instruction(state); break;
         case 0x1f: // RRC
-            uint8_t temp = state->a;
+            temp = state->a;
             state->a = (temp >> 1) | (state->flags.cy << 7);
             state->flags.cy = temp & 1;
             break;
 
         case 0x20: unimplemented_instruction(state); break;
-        case 0x21: unimplemented_instruction(state); break;
+        case 0x21: // LXI H,d16
+            LXI(state, &state->h, &state->l);
+            break;
         case 0x22: unimplemented_instruction(state); break;
         case 0x23: // INX H
             INX(state, &state->h, &state->l);
@@ -330,7 +342,11 @@ void emulate_opcodes (State *state)
             break;
 
         case 0x30: unimplemented_instruction(state); break;
-        case 0x31: unimplemented_instruction(state); break;
+        case 0x31: // LXI SP,d16
+            lsb = fetch(state);
+            msb = fetch(state);
+            state->sp = ((uint16_t) msb << 8) | (uint16_t) lsb;
+            break;
         case 0x32: unimplemented_instruction(state); break;
         case 0x33: // INX SP
             state->sp++;
@@ -368,75 +384,201 @@ void emulate_opcodes (State *state)
             state->flags.cy = ~state->flags.cy;
             break;
 
-        case 0x40: unimplemented_instruction(state); break;
-        case 0x41: unimplemented_instruction(state); break;
-        case 0x42: unimplemented_instruction(state); break;
-        case 0x43: unimplemented_instruction(state); break;
-        case 0x44: unimplemented_instruction(state); break;
-        case 0x45: unimplemented_instruction(state); break;
-        case 0x46: unimplemented_instruction(state); break;
-        case 0x47: unimplemented_instruction(state); break;
-        case 0x48: unimplemented_instruction(state); break;
-        case 0x49: unimplemented_instruction(state); break;
-        case 0x4a: unimplemented_instruction(state); break;
-        case 0x4b: unimplemented_instruction(state); break;
-        case 0x4c: unimplemented_instruction(state); break;
-        case 0x4d: unimplemented_instruction(state); break;
-        case 0x4e: unimplemented_instruction(state); break;
-        case 0x4f: unimplemented_instruction(state); break;
+        case 0x40: // MOV B,B
+            state->b = state->b;
+            break;
+        case 0x41: // MOV B,C
+            state->b = state->c;
+            break;
+        case 0x42: // MOV B,D
+            state->b = state->d;
+            break;
+        case 0x43: // MOV B,E
+            state->b = state->e;
+            break;
+        case 0x44: // MOV B,H
+            state->b = state->h;
+            break;
+        case 0x45: // MOV B,L
+            state->b = state->l;
+            break;
+        case 0x46: // MOV B,M
+            state->b = state->memory[m];
+            break;
+        case 0x47: // MOV B,A
+            state->b = state->a;
+            break;
+        case 0x48: // MOV C,B
+            state->c = state->b;
+            break;
+        case 0x49: // MOV C,C
+            state->c = state->c;
+            break;
+        case 0x4a: // MOV C,D
+            state->c = state->d;
+            break;
+        case 0x4b: // MOV C,E
+            state->c = state->e;
+            break;
+        case 0x4c: // MOV C,H
+            state->c = state->h;
+            break;
+        case 0x4d: // MOV C,L
+            state->c = state->l;
+            break;
+        case 0x4e: // MOV C,M
+            state->c = state->memory[m];
+            break;
+        case 0x4f: // MOV C,A
+            state->c = state->a;
+            break;
 
-        case 0x50: unimplemented_instruction(state); break;
-        case 0x51: unimplemented_instruction(state); break;
-        case 0x52: unimplemented_instruction(state); break;
-        case 0x53: unimplemented_instruction(state); break;
-        case 0x54: unimplemented_instruction(state); break;
-        case 0x55: unimplemented_instruction(state); break;
-        case 0x56: unimplemented_instruction(state); break;
-        case 0x57: unimplemented_instruction(state); break;
-        case 0x58: unimplemented_instruction(state); break;
-        case 0x59: unimplemented_instruction(state); break;
-        case 0x5a: unimplemented_instruction(state); break;
-        case 0x5b: unimplemented_instruction(state); break;
-        case 0x5c: unimplemented_instruction(state); break;
-        case 0x5d: unimplemented_instruction(state); break;
-        case 0x5e: unimplemented_instruction(state); break;
-        case 0x5f: unimplemented_instruction(state); break;
+        case 0x50: // MOV D,B
+            state->d = state->b;
+            break;
+        case 0x51: // MOV D,C
+            state->d = state->c;
+            break;
+        case 0x52: // MOV D,D
+            state->d = state->d;
+            break;
+        case 0x53: // MOV D,E
+            state->d = state->e;
+            break;
+        case 0x54: // MOV D,H
+            state->d = state->h;
+            break;
+        case 0x55: // MOV D,L
+            state->d = state->l;
+            break;
+        case 0x56: // MOV D,M
+            state->d = state->memory[m];
+            break;
+        case 0x57: // MOV D,A
+            state->d = state->a;
+            break;
+        case 0x58: // MOV E,B
+            state->e = state->b;
+            break;
+        case 0x59: // MOV E,C
+            state->e = state->c;
+            break;
+        case 0x5a: // MOV E,D
+            state->e = state->d;
+            break;
+        case 0x5b: // MOV E,E
+            state->e = state->e;
+            break;
+        case 0x5c: // MOV E,H
+            state->e = state->h;
+            break;
+        case 0x5d: // MOV E,L
+            state->e = state->l;
+            break;
+        case 0x5e: // MOV E,M
+            state->e = state->memory[m];
+            break;
+        case 0x5f: // MOV E,A
+            state->e = state->a;
+            break;
 
-        case 0x60: unimplemented_instruction(state); break;
-        case 0x61: unimplemented_instruction(state); break;
-        case 0x62: unimplemented_instruction(state); break;
-        case 0x63: unimplemented_instruction(state); break;
-        case 0x64: unimplemented_instruction(state); break;
-        case 0x65: unimplemented_instruction(state); break;
-        case 0x66: unimplemented_instruction(state); break;
-        case 0x67: unimplemented_instruction(state); break;
-        case 0x68: unimplemented_instruction(state); break;
-        case 0x69: unimplemented_instruction(state); break;
-        case 0x6a: unimplemented_instruction(state); break;
-        case 0x6b: unimplemented_instruction(state); break;
-        case 0x6c: unimplemented_instruction(state); break;
-        case 0x6d: unimplemented_instruction(state); break;
-        case 0x6e: unimplemented_instruction(state); break;
-        case 0x6f: unimplemented_instruction(state); break;
+        case 0x60: // MOV H,B
+            state->h = state->b;
+            break;
+        case 0x61: // MOV H,C
+            state->h = state->c;
+            break;
+        case 0x62: // MOV H,D
+            state->h = state->d;
+            break;
+        case 0x63: // MOV H,E
+            state->h = state->e;
+            break;
+        case 0x64: // MOV H,H
+            state->h = state->h;
+            break;
+        case 0x65: // MOV H,L
+            state->h = state->l;
+            break;
+        case 0x66: // MOV H,M
+            state->h = state->memory[m];
+            break;
+        case 0x67: // MOV H,A
+            state->h = state->a;
+            break;
+        case 0x68: // MOV L,B
+            state->l = state->b;
+            break;
+        case 0x69: // MOV L,C
+            state->l = state->c;
+            break;
+        case 0x6a: // MOV L,D
+            state->l = state->d;
+            break;
+        case 0x6b: // MOV L,E
+            state->l = state->e;
+            break;
+        case 0x6c: // MOV L,H
+            state->l = state->h;
+            break;
+        case 0x6d: // MOV L,L
+            state->l = state->l;
+            break;
+        case 0x6e: // MOV L,M
+            state->l = state->memory[m];
+            break;
+        case 0x6f: // MOV L,A
+            state->l = state->a;
+            break;
 
-        case 0x70: unimplemented_instruction(state); break;
-        case 0x71: unimplemented_instruction(state); break;
-        case 0x72: unimplemented_instruction(state); break;
-        case 0x73: unimplemented_instruction(state); break;
-        case 0x74: unimplemented_instruction(state); break;
-        case 0x75: unimplemented_instruction(state); break;
+        case 0x70: // MOV M,B
+            state->memory[m] = state->b;
+            break;
+        case 0x71: // MOV M,C
+            state->memory[m] = state->c;
+            break;
+        case 0x72: // MOV M,D
+            state->memory[m] = state->d;
+            break;
+        case 0x73: // MOV M,E
+            state->memory[m] = state->e;
+            break;
+        case 0x74: // MOV M,H
+            state->memory[m] = state->h;
+            break;
+        case 0x75: // MOV M,L
+            state->memory[m] = state->l;
+            break;
         case 0x76: // HLT
             state->halted = 1;
             break;
-        case 0x77: unimplemented_instruction(state); break;
-        case 0x78: unimplemented_instruction(state); break;
-        case 0x79: unimplemented_instruction(state); break;
-        case 0x7a: unimplemented_instruction(state); break;
-        case 0x7b: unimplemented_instruction(state); break;
-        case 0x7c: unimplemented_instruction(state); break;
-        case 0x7d: unimplemented_instruction(state); break;
-        case 0x7e: unimplemented_instruction(state); break;
-        case 0x7f: unimplemented_instruction(state); break;
+        case 0x77: // MOV M,A
+            state->memory[m] = state->a;
+            break;
+        case 0x78: // MOV A,B
+            state->a = state->b;
+            break;
+        case 0x79: // MOV A,C
+            state->a = state->c;
+            break;
+        case 0x7a: // MOV A,D
+            state->a = state->d;
+            break;
+        case 0x7b: // MOV A,E
+            state->a = state->e;
+            break;
+        case 0x7c: // MOV A,H
+            state->a = state->h;
+            break;
+        case 0x7d: // MOV A,L
+            state->a = state->l;
+            break;
+        case 0x7e: // MOV A,M
+            state->a = state->memory[m];
+            break;
+        case 0x7f: // MOV A,A
+            state->a = state->a;
+            break;
 
         case 0x80: // ADD B
             ADD(state, state->b);
@@ -643,21 +785,21 @@ void emulate_opcodes (State *state)
             POP(state, &state->b, &state->c);
             break;
         case 0xc2: // JNZ a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.z == 0)
             {
                 JMP(state, lsb, msb);
             }
             break;
         case 0xc3: // JMP a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             JMP(state, lsb, msb);
             break;
         case 0xc4: // CNZ a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.z == 0)
             {
                 CALL(state, lsb, msb);
@@ -667,7 +809,7 @@ void emulate_opcodes (State *state)
             PUSH(state, state->b, state->c);
             break;
         case 0xc6: // ADI d8
-            uint8_t val = fetch(state);
+            val = fetch(state);
             ADD(state, val);
             break;
         case 0xc7: // RST 0
@@ -683,8 +825,8 @@ void emulate_opcodes (State *state)
             RET(state);
             break;
         case 0xca: // JZ a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.z)
             {
                 JMP(state, lsb, msb);
@@ -692,20 +834,20 @@ void emulate_opcodes (State *state)
             break;
         case 0xcb: unimplemented_instruction(state); break;
         case 0xcc: // CZ a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.z)
             {
                 CALL(state, lsb, msb);
             }
             break;
         case 0xcd: // CALL a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             CALL(state, lsb, msb);
             break;
         case 0xce: // ACI d8
-            uint8_t val = fetch(state);
+            val = fetch(state);
             ADC(state, val);
             break;
         case 0xcf: // RST 1
@@ -722,8 +864,8 @@ void emulate_opcodes (State *state)
             POP(state, &state->d, &state->e);
             break;
         case 0xd2: // JNC a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.cy == 0)
             {
                 JMP(state, lsb, msb);
@@ -733,8 +875,8 @@ void emulate_opcodes (State *state)
             fetch(state);
             break; // CURRENTLY JUST A PLACEHOLDER
         case 0xd4: // CNC a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.cy == 0)
             {
                 CALL(state, lsb, msb);
@@ -744,7 +886,7 @@ void emulate_opcodes (State *state)
             PUSH(state, state->d, state->e);
             break;
         case 0xd6:  // SUI d8
-            uint8_t val = fetch(state);
+            val = fetch(state);
             SUB(state, val);
             break;
         case 0xd7: // RST 2
@@ -758,8 +900,8 @@ void emulate_opcodes (State *state)
             break;
         case 0xd9: unimplemented_instruction(state); break;
         case 0xda: // JC a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.cy)
             {
                 JMP(state, lsb, msb);
@@ -769,8 +911,8 @@ void emulate_opcodes (State *state)
             fetch(state);
             break; // CURRENTLY JUST A PLACEHOLDER
         case 0xdc: // CC a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.cy)
             {
                 CALL(state, lsb, msb);
@@ -778,7 +920,7 @@ void emulate_opcodes (State *state)
             break;
         case 0xdd: unimplemented_instruction(state); break;
         case 0xde: // SBI d8
-            uint8_t val = fetch(state);
+            val = fetch(state);
             SBB(state, val);
             break;
         case 0xdf: // RST 3
@@ -795,15 +937,15 @@ void emulate_opcodes (State *state)
             POP(state, &state->h, &state->l);
             break;
         case 0xe2: // JPO a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.p == 0)
             {
                 JMP(state, lsb, msb);
             }
             break;
         case 0xe3: // XTHL
-            uint8_t temp = state->l;
+            temp = state->l;
             state->l = state->memory[state->sp];
             state->memory[state->sp] = temp;
             temp = state->h;
@@ -811,8 +953,8 @@ void emulate_opcodes (State *state)
             state->memory[state->sp + 1] = temp; 
             break;
         case 0xe4: // CPO a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.p == 0)
             {
                 CALL(state, lsb, msb);
@@ -822,15 +964,15 @@ void emulate_opcodes (State *state)
             PUSH(state, state->h, state->l);
             break;
         case 0xe6: // ANI d8
-            uint8_t val = fetch(state);
+            val = fetch(state);
             ANA(state, val);
             break;
         case 0xe7: // RST 4
             RST(state, 0x0020);
             break;
         case 0xe8: // RPE
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.p)
             {
                 RET(state);
@@ -840,8 +982,8 @@ void emulate_opcodes (State *state)
             state->pc = ((state->h) << 8) | (state->l);
             break;
         case 0xea: // JPE a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.p)
             {
                 JMP(state, lsb, msb);
@@ -849,8 +991,8 @@ void emulate_opcodes (State *state)
             break;
         case 0xeb: unimplemented_instruction(state); break;
         case 0xec: // CPE a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.p)
             {
                 CALL(state, lsb, msb);
@@ -858,7 +1000,7 @@ void emulate_opcodes (State *state)
             break;
         case 0xed: unimplemented_instruction(state); break;
         case 0xee: // XRI d8
-            uint8_t val = fetch(state);
+            val = fetch(state);
             XRA(state, val);
             break;
         case 0xef: // RST 5
@@ -866,8 +1008,8 @@ void emulate_opcodes (State *state)
             break;
 
         case 0xf0: // RP
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.z == 0)
             {
                 RET(state);
@@ -884,8 +1026,8 @@ void emulate_opcodes (State *state)
             state->sp += 2;
             break;
         case 0xf2: // JP a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.s == 0)
             {
                 JMP(state, lsb, msb);
@@ -895,8 +1037,8 @@ void emulate_opcodes (State *state)
             state->int_enable = 0;
             break;
         case 0xf4: // CP a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.s == 0)
             {
                 CALL(state, lsb, msb);
@@ -908,7 +1050,7 @@ void emulate_opcodes (State *state)
             state->sp -= 2;
             break;
         case 0xf6: // ORI d8
-            uint8_t val = fetch(state);
+            val = fetch(state);
             ORA(state, val);
             break;
         case 0xf7: // RST 6
@@ -924,8 +1066,8 @@ void emulate_opcodes (State *state)
             state->sp = state->memory[m];
             break;
         case 0xfa:  // JM a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.s)
             {
                 JMP(state, lsb, msb);
@@ -935,8 +1077,8 @@ void emulate_opcodes (State *state)
             state->int_enable = 1;
             break;
         case 0xfc: // CM a16
-            uint8_t lsb = fetch(state);
-            uint8_t msb = fetch(state);
+            lsb = fetch(state);
+            msb = fetch(state);
             if (state->flags.s)
             {
                 CALL(state, lsb, msb);
@@ -944,11 +1086,51 @@ void emulate_opcodes (State *state)
             break;
         case 0xfd: unimplemented_instruction(state); break;
         case 0xfe: // CPI d8
-            uint8_t val = fetch(state);
+            val = fetch(state);
             CMP(state, val);
             break;
         case 0xff: // RST 7
             RST(state, 0x0038);
             break;
     }
+        printf("\tC=%d,P=%d,S=%d,Z=%d\n", state->flags.cy, state->flags.p,    
+        state->flags.s, state->flags.z);    
+        printf("\tA $%02x B $%02x C $%02x D $%02x E $%02x H $%02x L $%02x SP %04x\n",    
+            state->a, state->b, state->c, state->d,    
+            state->e, state->h, state->l, state->sp);    
 }
+void init_state(State *state)
+{
+    state->pc = 0;
+    state->sp = 0;
+
+    state->a = 0;
+    state->b = 0;
+    state->c = 0;
+    state->d = 0;
+    state->e = 0;
+    state->h = 0;
+    state->l = 0;
+
+    state->flags.s = 0;
+    state->flags.z = 0;
+    state->flags.ac = 0;
+    state->flags.p = 0;
+    state->flags.cy = 0;
+
+    state->halted = 0;
+    state->int_enable = 0;
+}
+    
+
+// int main(void)
+// {
+//     State state;
+//     init_state(&state);
+//     state.memory = malloc(16384);
+//     for (int i = 0; i < 100; i++)
+//     {
+//         emulate_opcodes(&state);
+//     }
+//     return 0;
+// }
