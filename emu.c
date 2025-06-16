@@ -1099,38 +1099,42 @@ void emulate_opcodes (State *state)
             state->a, state->b, state->c, state->d,    
             state->e, state->h, state->l, state->sp);    
 }
-void init_state(State *state)
+
+
+// Reference: https://github.com/kpmiller/emulator101/blob/master/8080emu-first50.c
+void read_file_to_mem(State *state, char* filename, uint32_t offset)
 {
-    state->pc = 0;
-    state->sp = 0;
-
-    state->a = 0;
-    state->b = 0;
-    state->c = 0;
-    state->d = 0;
-    state->e = 0;
-    state->h = 0;
-    state->l = 0;
-
-    state->flags.s = 0;
-    state->flags.z = 0;
-    state->flags.ac = 0;
-    state->flags.p = 0;
-    state->flags.cy = 0;
-
-    state->halted = 0;
-    state->int_enable = 0;
+    FILE *f = fopen(filename, "rb");
+    if (f == NULL)
+    {
+        printf("Error: Couldn't open %s\n", filename);
+        exit(1);
+    }
+    fseek(f, 0L, SEEK_END);
+    int fsize = ftell(f);
+    fseek(f, 0L, SEEK_SET);
+    uint8_t *buffer = &state->memory[offset];
+    fread(buffer, fsize, 1, f);
+    fclose(f);
 }
-    
 
-// int main(void)
-// {
-//     State state;
-//     init_state(&state);
-//     state.memory = malloc(16384);
-//     for (int i = 0; i < 100; i++)
-//     {
-//         emulate_opcodes(&state);
-//     }
-//     return 0;
-// }
+State *init_8080()
+{
+	State *state = calloc(1, sizeof(State));
+	state->memory = malloc(0x10000);  // 16K
+	return state;
+}
+
+int main(void)
+{
+    State *state = init_8080();
+    read_file_to_mem(state, "invaders.h", 0);
+    read_file_to_mem(state, "invaders.g", 0x800);
+    read_file_to_mem(state, "invaders.f", 0x1000);
+    read_file_to_mem(state, "invaders.e", 0x1800);
+    while (!state->halted)
+    {
+        emulate_opcodes(state);
+    }
+    return 0;
+}
