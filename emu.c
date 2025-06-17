@@ -1,39 +1,37 @@
 /*
-The disassembler is still not working completely how it should, but we can worry about that later
+The disassembler has been integrated for debugging
 Note:
     The 8080 is little-endian
     M is the memory location pointed to by the register pair HL
     AC flag will not be implemented for now (maybe after I get Space Invaders running)
 */
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include "disassembler.c"
 
 typedef struct Condition_Codes
 {
-    uint8_t z:1;
-    uint8_t s:1;
-    uint8_t p:1;
-    uint8_t cy:1;
-    uint8_t ac:1;
-    uint8_t pa:3;
+    uint8_t z:1; // Z (zero) flag
+    uint8_t s:1; // S (sign) flag
+    uint8_t p:1; // P (parity) flag
+    uint8_t cy:1; // CY (carry) flag
+    uint8_t ac:1; // AC (auxillary carry) flag
+    uint8_t pa:3; // Padding for the byte
 } Condition_Codes;
 
 typedef struct State
 {
-    uint8_t a;
-    uint8_t b;
-    uint8_t c;
-    uint8_t d;
-    uint8_t e;
-    uint8_t h;
-    uint8_t l;
-    uint16_t sp;
-    uint16_t pc;
-    uint8_t *memory;
-    Condition_Codes flags;
-    uint8_t int_enable;
-    uint8_t halted;
+    uint8_t a; // Register A
+    uint8_t b; // Register B
+    uint8_t c; // Register C
+    uint8_t d; // Register D
+    uint8_t e; // Register E
+    uint8_t h; // Register H
+    uint8_t l; // Register L
+    uint16_t sp; // Stack pointer
+    uint16_t pc; // Program counter
+    uint8_t *memory; // Main memory (16K)
+    Condition_Codes flags; // Flags
+    uint8_t int_enable; // Interrupt enable
+    uint8_t halted; // Halted CPU state
 } State;
 
 void unimplemented_instruction(State *state)
@@ -51,7 +49,16 @@ uint8_t fetch(State *state)
 
 int parity(int val)
 {
-    return 0;
+    int p = 0;
+    for (int i = 0; i < 8; i++)
+    {
+        if (val & 1)
+        {
+            p++;
+        }
+        val >>= 1;
+    }
+    return ((p & 1) == 0);
 }
 
 void ADD(State *state, uint8_t reg)
@@ -213,12 +220,13 @@ void LXI(State *state, uint8_t *high_reg, uint8_t *low_reg)
     *high_reg = fetch(state); // higher byte
 }
 
-
 void emulate_opcodes (State *state)
 {
     uint8_t opcode = fetch(state);
-    uint16_t m = (state->h << 8) | (state->l);
+    uint16_t m = (state->h << 8) | state->l;
     uint8_t lsb, msb, temp, val;
+    uint16_t addr;
+    disassemble_op(state->memory, state->pc - 1);
 
     switch (opcode)
     {
@@ -237,7 +245,9 @@ void emulate_opcodes (State *state)
         case 0x05: // DCR B
             DCR(state, &state->b);
             break;
-        case 0x06: unimplemented_instruction(state); break;
+        case 0x06: // MVI B,d8
+            state->b = fetch(state);
+            break;
         case 0x07: // RLC
             temp = state->a;
             state->a = (temp << 1) | (temp >> 7); // Shift everything to the left, bring msb to lsb
@@ -248,7 +258,10 @@ void emulate_opcodes (State *state)
         case 0x09: // DAD B
             DAD(state, state->b, state->c);
             break;
-        case 0x0a: unimplemented_instruction(state); break;
+        case 0x0a: // LDAX B
+            uint16_t bc = (state->b << 8) | state->c;
+            state->a = state->memory[bc];
+            break;
         case 0x0b: // DCX B
             DCX(state, &state->b, &state->c);
             break;
@@ -258,7 +271,9 @@ void emulate_opcodes (State *state)
         case 0x0d: // DCR C
             DCR(state, &state->c);
             break;
-        case 0x0e: unimplemented_instruction(state); break;
+        case 0x0e: // MVI C,d8
+            state->c = fetch(state);
+            break;
         case 0x0f: // RRC
             temp = state->a;
             state->a = (temp >> 1) | (temp << 7);
@@ -279,7 +294,9 @@ void emulate_opcodes (State *state)
         case 0x15: // DCR D
             DCR(state, &state->d);
             break;
-        case 0x16: unimplemented_instruction(state); break;
+        case 0x16: // MVI D,d8
+            state->d = fetch(state);
+            break;
         case 0x17: // RAL
             temp = state->a;
             state->a = (temp << 1) | (state->flags.cy >> 7);
@@ -289,7 +306,10 @@ void emulate_opcodes (State *state)
         case 0x19: // DAD D
             DAD(state, state->d, state->e);
             break;
-        case 0x1a: unimplemented_instruction(state); break;
+        case 0x1a: // LDAX D
+            uint16_t de = (state->d << 8) | state->e;
+            state->a = state->memory[bc];
+            break;
         case 0x1b: // DCX D
             DCX(state, &state->d, &state->e);
             break;
@@ -299,7 +319,9 @@ void emulate_opcodes (State *state)
         case 0x1d: // DCR E
             DCR(state, &state->e);
             break;
-        case 0x1e: unimplemented_instruction(state); break;
+        case 0x1e: // MVI E,d8
+            state->e = fetch(state);
+            break;
         case 0x1f: // RRC
             temp = state->a;
             state->a = (temp >> 1) | (state->flags.cy << 7);
@@ -320,13 +342,20 @@ void emulate_opcodes (State *state)
         case 0x25: // DCR H
             DCR(state, &state->h);
             break;
-        case 0x26: unimplemented_instruction(state); break;
+        case 0x26: // MVI H,d8
+            state->h = fetch(state);
+            break;
         case 0x27: unimplemented_instruction(state); break;
         case 0x28: unimplemented_instruction(state); break;
         case 0x29: // DAD H
             DAD(state, state->h, state->l);
             break;
-        case 0x2a: unimplemented_instruction(state); break;
+        case 0x2a: // LHLD a16
+            addr = fetch(state);
+            addr |= fetch(state) << 8;
+            state->l = state->memory[addr];
+            state->h = state->memory[addr + 1];
+            break;
         case 0x2b: // DCX H
             DCX(state, &state->h, &state->l);
             break;
@@ -336,7 +365,9 @@ void emulate_opcodes (State *state)
         case 0x2d: // DCR L
             DCR(state, &state->l);
             break;
-        case 0x2e: unimplemented_instruction(state); break;
+        case 0x2e: // MVI L,d8
+            state->l = fetch(state);
+            break;
         case 0x2f: // CMA
             state->a = ~state->a;
             break;
@@ -357,7 +388,9 @@ void emulate_opcodes (State *state)
         case 0x35: // DCR M
             DCR(state, &state->memory[m]);
             break;
-        case 0x36: unimplemented_instruction(state); break;
+        case 0x36: // MVI M,d8
+            state->memory[m] = fetch(state);
+            break;
         case 0x37: // STC
             state->flags.cy = 1;
             break;
@@ -369,7 +402,11 @@ void emulate_opcodes (State *state)
             state->h = (ans & 0xff00) >> 8;
             state->l = (ans & 0x00ff);
             break;
-        case 0x3a: unimplemented_instruction(state); break;
+        case 0x3a: // LDA a16
+            addr = fetch(state);
+            addr |= fetch(state) << 8;
+            state->a = state->memory[addr];
+            break;
         case 0x3b: // DCX SP
             state->sp--;
             break;
@@ -379,7 +416,9 @@ void emulate_opcodes (State *state)
         case 0x3d: // DCR A
             DCR(state, &state->a);
             break;
-        case 0x3e: unimplemented_instruction(state); break;
+        case 0x3e: // MVI A,d8
+            state->a = fetch(state);
+            break;
         case 0x3f: // CTC
             state->flags.cy = ~state->flags.cy;
             break;
