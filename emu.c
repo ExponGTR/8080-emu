@@ -6,33 +6,7 @@ Note:
     AC flag will not be implemented for now (maybe after I get Space Invaders running)
 */
 #include "disassembler.c"
-
-typedef struct Condition_Codes
-{
-    uint8_t z:1; // Z (zero) flag
-    uint8_t s:1; // S (sign) flag
-    uint8_t p:1; // P (parity) flag
-    uint8_t cy:1; // CY (carry) flag
-    uint8_t ac:1; // AC (auxillary carry) flag
-    uint8_t pa:3; // Padding for the byte
-} Condition_Codes;
-
-typedef struct State
-{
-    uint8_t a; // Register A
-    uint8_t b; // Register B
-    uint8_t c; // Register C
-    uint8_t d; // Register D
-    uint8_t e; // Register E
-    uint8_t h; // Register H
-    uint8_t l; // Register L
-    uint16_t sp; // Stack pointer
-    uint16_t pc; // Program counter
-    uint8_t *memory; // Main memory (16K)
-    Condition_Codes flags; // Flags
-    uint8_t int_enable; // Interrupt enable
-    uint8_t halted; // Halted CPU state
-} State;
+#include "emu.h"
 
 void unimplemented_instruction(State *state)
 {
@@ -220,9 +194,8 @@ void LXI(State *state, uint8_t *high_reg, uint8_t *low_reg)
     *high_reg = fetch(state); // higher byte
 }
 
-void emulate_opcodes (State *state)
+void emulate_8080 (State *state, uint8_t opcode)
 {
-    uint8_t opcode = fetch(state);
     uint16_t m = (state->h << 8) | state->l;
     uint8_t lsb, msb, temp, val;
     uint16_t addr;
@@ -1162,18 +1135,4 @@ State *init_8080()
 	State *state = calloc(1, sizeof(State));
 	state->memory = malloc(0x10000);  // 16K
 	return state;
-}
-
-int main(void)
-{
-    State *state = init_8080();
-    read_file_to_mem(state, "invaders.h", 0);
-    read_file_to_mem(state, "invaders.g", 0x800);
-    read_file_to_mem(state, "invaders.f", 0x1000);
-    read_file_to_mem(state, "invaders.e", 0x1800);
-    while (!state->halted)
-    {
-        emulate_opcodes(state);
-    }
-    return 0;
 }
